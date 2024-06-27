@@ -1,0 +1,46 @@
+---
+title: OpenPATH map matching
+---
+
+```{julia}
+import TOML, GeoDataFrames, ArchGDAL
+import GeoFormatTypes as GFT
+using OpenPATHMatching, OSRM, DataFrames
+
+CONFIG = TOML.parsefile(joinpath(@__DIR__, "Config.toml"))
+```
+
+```{julia}
+data = OpenPATHMatching.read_json_gz(joinpath(CONFIG["DATA_DIR"], CONFIG["INFILE"]))
+```
+
+```{julia}
+trips, points = OpenPATHMatching.get_all_trips(data)
+GeoDataFrames.write(joinpath(CONFIG["DATA_DIR"], "raw_trips.gpkg"), trips)
+```
+
+Build bike network if not already built
+
+```{julia}
+if !isfile(joinpath(@__DIR__, "osrm", "bike", "dch.osrm.ebg"))
+    OSRM.build(joinpath(@__DIR__, "osrm", "bike", "dch.osm.pbf"), OSRM.Profiles.Bicycle, OSRM.Algorithm.MultiLevelDijkstra)
+end
+```
+
+```{julia}
+bikeosrm = OSRMInstance(joinpath(@__DIR__, "osrm", "bike", "dch.osrm"), OSRM.Algorithm.MultiLevelDijkstra)
+```
+
+```{julia}
+# match the trips
+bike_trips = trips[coalesce.(trips.mode_confirm .== "bike", false), :]
+
+@time matchings = tripmatch.(Ref(bikeosrm), Ref(points), bike_trips.user, bike_trips.trip_id);
+
+bike_trips.geom = [ArchGDAL.createlinestring([[ll.lon, ll.lat] for ll in first(m.matchings).geometry]) for m in matchings]
+
+metadata!(bike_trips, "geometrycolumns", (:geom,))
+metadata!(bike_trips, "crs", GFT.EPSG(4326))
+
+GeoDataFrames.write(joinpath(CONFIG["DATA_DIR"], "matched_bike_trips.gpkg"), bike_trips)
+```

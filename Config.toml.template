@@ -1,0 +1,4 @@
+# Path to a directory containing a (possibly gzipped) JSON dump from OpenPATH
+DATA_DIR = ""
+# Name of the json file
+INFILE = ""
